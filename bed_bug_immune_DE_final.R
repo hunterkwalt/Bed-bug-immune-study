@@ -118,7 +118,8 @@ library(pheatmap)
 
 ### TI PCA and Cluster
 vsd <- vst(TIdds, blind=FALSE)
-plotPCA(vsd, intgroup = "condition")
+TIpca <- plotPCA(vsd, intgroup = "condition")
+TIpca <- TIpca + ggtitle("TI Bacteria (Bacillus spp.)")
 
 select <- order(rowMeans(counts(TIdds,normalized=TRUE)),
                 decreasing=TRUE)[1:1000]
@@ -130,7 +131,8 @@ pheatmap(assay(vsd)[select,], cluster_rows=FALSE, show_rownames=T,
 
 ### EN PCA and Cluster
 vsd <- vst(ENdds, blind=FALSE)
-plotPCA(vsd, intgroup = "condition")
+ENpca <- plotPCA(vsd, intgroup = "condition")
+ENpca <- ENpca + ggtitle("Pseudomonas fluorescens")
 
 select <- order(rowMeans(counts(ENdds,normalized=TRUE)),
                 decreasing=TRUE)[1:1000]
@@ -142,7 +144,8 @@ pheatmap(assay(vsd)[select,], cluster_rows=FALSE, show_rownames=T,
 
 ### PT PCA and Cluster
 vsd <- vst(PTdds, blind=FALSE)
-plotPCA(vsd, intgroup = "condition")
+PTpca <- plotPCA(vsd, intgroup = "condition")
+PTpca <- PTpca + ggtitle("Borrelia duttoni")
 
 select <- order(rowMeans(counts(PTdds,normalized=TRUE)),
                 decreasing=TRUE)[1:100]
@@ -150,6 +153,11 @@ select <- order(rowMeans(counts(PTdds,normalized=TRUE)),
 df <- as.data.frame(colData(PTdds))
 pheatmap(assay(vsd)[select,], cluster_rows=FALSE, show_rownames=T,
          cluster_cols=T, annotation_col=df)
+
+#export pcas for supp data
+#ggsave(ENpca, filename = "/mnt/md0/cimex_infection/figures/updated/EN_pca.svg")
+#ggsave(TIpca, filename = "/mnt/md0/cimex_infection/figures/updated/TI_pca.svg")
+#ggsave(PTpca, filename = "/mnt/md0/cimex_infection/figures/updated/PT_pca.svg")
 
 
 ######################## Make volcano Plots #################
@@ -201,6 +209,18 @@ ggarrange(EN_volcano,TI_volcano, PT_volcano, nrow = 1)
 #dev.off()
 
 
+################ Make Immune Gene Tables #################
+
+#get all immune genes from each result
+EN_immune_total <- ENresults[rownames(ENresults) %in% all_immune_genes,]
+TI_immune_total <- TIresults[rownames(TIresults) %in% all_immune_genes,]
+PT_immune_total <- PTresults[rownames(PTresults) %in% all_immune_genes,]
+
+
+#write out immune genes
+#write.table(EN_immune_total, quote = F, col.names = T, sep = "\t", row.names = T,  file = "/mnt/md0/cimex_infection/immune/EN_immune_total.tsv")
+#write.table(TI_immune_total, quote = F, col.names = T, sep = "\t", row.names = T,  file = "/mnt/md0/cimex_infection/immune/TI_immune_total.tsv")
+#write.table(PT_immune_total, quote = F, col.names = T, sep = "\t", row.names = T,  file = "/mnt/md0/cimex_infection/immune/PT_immune_total.tsv")
 
 
 ################### GO Analysis ##################
@@ -324,4 +344,74 @@ pt_en_sub_union <- length(union(pt_venn_l, en_venn_l))
 fisher.test(matrix(c(ti_en_union-ti_en_sub_union,ti - ti_en_int ,en - ti_en_int, ti_en_int),nrow = 2, ncol = 2), alternative = "greater")
 fisher.test(matrix(c(ti_pt_union-ti_pt_sub_union,ti - ti_pt_int ,pt - ti_pt_int, ti_pt_int),nrow = 2, ncol = 2), alternative = "greater")
 fisher.test(matrix(c(pt_en_union-pt_en_sub_union,pt - en_pt_int ,en - en_pt_int, en_pt_int),nrow = 2, ncol = 2), alternative = "greater")
+
+
+##### THIS CODE WAS USED TO MAKE SUPPLEMENTARY FIGS 2-4 #######
+
+########## OVERALL IMMUNE GENE EXPRESSION HEATMAPS #########33
+
+##################### Full Set of Immune Genes ##########################################
+
+library(ggplot2)
+library(tidyverse)
+
+#The final immune gene list was used to get the transcript names from the bed bug ref.
+#These names were used to get the TPM for each transcript.
+setwd("/mnt/md0/cimex_infection/meraj_data/")
+
+#this table is the result of that. It is formatted as our treatment, exp/control group, replicate, transcript name, then TPM
+orf <- read.table(file = "/mnt/md0/cimex_infection/meraj_data/full_immune_genes_tpm_final.tsv", header = F)
+
+#make header
+colnames(orf) <- c("Treatment", "Bacteria","Replicate",  "Transcript", "TPM")
+
+#this is a tx2gene file so that our final result is shown by gene, not by transcript
+txs <- read.table("/mnt/md0/cimex_infection/meraj_data/immune_tx_to_gene.tsv", header = F)
+colnames(txs) <- c("Transcript", "Gene")
+
+#make a gene column
+genes <- rep(txs$Gene, each = 18)
+orf$Gene <- genes
+
+#average transcript expression
+av <- orf %>% 
+  group_by(Treatment, Bacteria, Gene) %>%
+  summarise(avg = mean(TPM), .groups = "keep")
+
+#subset data by experiment
+en_sub <- subset(orf, Treatment == "EN")
+pt_sub <- subset(orf, Treatment == "PT")
+ti_sub <- subset(orf, Treatment == "TI")
+
+#make a log2TPM row for visual clairity
+en_sub$log2TPM <- log(en_sub$TPM + 1, 2)
+pt_sub$log2TPM <- log(pt_sub$TPM + 1, 2)
+ti_sub$log2TPM <- log(ti_sub$TPM + 1, 2)
+
+
+#add column for each sample for heatplot
+en_sub$Sample <- paste(en_sub$Treatment, en_sub$Bacteria, en_sub$Replicate, sep = "_")
+
+#make plots
+
+######### P. fluorescens
+en_hm <- ggplot(en_sub, aes(Sample, Gene, fill = log2TPM)) + geom_tile() + theme_minimal() + 
+  scale_fill_gradient(low = "white", high = "red") + theme(plot.title = element_text(face = "italic"),
+                                                           axis.text.y = element_text(size = 4)) + ggtitle("Pseudomonas fluorescens")
+
+########## TI Bacteria
+ti_sub$Sample <- paste(ti_sub$Treatment, ti_sub$Bacteria, ti_sub$Replicate, sep = "_")
+
+ti_hm <- ggplot(ti_sub, aes(Sample, Gene, fill = log2TPM)) + geom_tile() + theme_minimal() + 
+  scale_fill_gradient(low = "white", high = "red") + theme(axis.text.y = element_text(size = 4 )) + ggtitle("TI bacteria")
+
+############# Borrelia duttoni
+pt_sub$Sample <- paste(pt_sub$Treatment, pt_sub$Bacteria, pt_sub$Replicate, sep = "_")
+
+pt_hm <- ggplot(pt_sub, aes(Sample, Gene, fill = log2TPM)) + geom_tile() + theme_minimal() + 
+  scale_fill_gradient(low = "white", high = "red") + theme(plot.title = element_text(face = "italic"),
+                                                           axis.text.y  = element_text(size = 5)) + ggtitle("Borellia duttoni")
+
+#show all together
+ggarrange(en_hm, ti_hm, pt_hm, ncol = 1)
 
